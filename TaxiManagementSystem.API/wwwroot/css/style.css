@@ -18,7 +18,7 @@ color:white;
 
 .sidebar{
 width:70px;
-background:#0f172a;
+background:#122625;
 color:white;
 overflow:hidden;
 transition:0.3s;
@@ -237,7 +237,7 @@ th:nth-child(6), td:nth-child(6) { width: 18%; } /* Taxi Driver */
 th:nth-child(7), td:nth-child(7) { width: 14%; } /* Action Button */
 
 th {
-    background: #2563eb;
+    background: #410fcb;
     color: white;
     font-weight: 600;
     letter-spacing: 0.03em;
