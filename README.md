@@ -251,8 +251,7 @@ stateDiagram-v2
 |---|---|---|
 |INFO|アプリ起動/終了|アプリケーション起動|
 |WARN|制約付き実行|localhostで起動|
-|ERROR|DB接続エラー、通信確立失敗|通信確立失敗：アクセスを拒否されました|
-|FATAL|異常終了|サーバーを起動できませんでした|
+|FATAL|DB接続エラー、通信確立失敗|通信確立失敗：アクセスを拒否されました|
 
 ### JOB状態遷移
 
@@ -267,13 +266,6 @@ stateDiagram-v2
 |---|---|---|
 |INFO|状態遷移時|TX001:IDLE->RESERVED:J001|
 |WARN|状態遷移不可|TX001:RESERVED->OFFDUTY:INVALID_TRANSITION|
-
-### オペレーションログ
-
-|ログレベル|出力タイミング|メッセージ例|
-|---|---|---|
-|INFO|通常操作|J001 REGISTERED|
-|WARN|異常操作|J001 NOT_REGISTERED:INVALID_INPUT|
 
 ### DB操作ログ
 

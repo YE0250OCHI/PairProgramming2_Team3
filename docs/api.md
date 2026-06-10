@@ -490,6 +490,7 @@ GET /api/taxis/{id}
   "status": "Reserved",
   "driverName": "佐藤　一郎",
   "jobId": "J20260609-0034",
+  "jobStatus": "Active",
   "fromLoc": "新居浜駅",
   "toLoc": "銅夢キッチン"
 }

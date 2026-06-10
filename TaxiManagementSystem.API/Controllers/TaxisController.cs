@@ -6,7 +6,7 @@ namespace TaxiManagementSystem.API.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
-public class TaxisController(IRepository repository, EventNotifier notifier) : ControllerBase
+public class TaxisController(IEditableRepository repository, EventNotifier notifier) : ControllerBase
 {
     // タクシー一覧取得
     [HttpGet]

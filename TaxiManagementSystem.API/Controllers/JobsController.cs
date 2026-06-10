@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Identity.Data;
+using Microsoft.AspNetCore.Mvc;
+using TaxiManagementSystem.API.Model;
 using TaxiManagementSystem.API.Notifier;
 using TaxiManagementSystem.API.Repository;
 
@@ -6,7 +8,7 @@ namespace TaxiManagementSystem.API.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
-public class JobsController(IRepository repository, EventNotifier notifier) : ControllerBase
+public class JobsController(ITMSRepository repository, EventNotifier notifier) : ControllerBase
 {
     // 実行中JOB一覧取得
     [HttpGet]
@@ -19,16 +21,51 @@ public class JobsController(IRepository repository, EventNotifier notifier) : Co
 
     // JOB登録
     [HttpPost]
-    public async Task<IActionResult> PostCreateJob(CancellationToken token)
+    public async Task<IActionResult> PostCreateJob([FromBody] RegisterJobRequest registerJob, CancellationToken token)
     {
-        /* タクシー割当拒否 */
-        if (false)
+        try
         {
-            return BadRequest();
-        }
+            /* 入力値不正確認 */
+            if ((registerJob is null) ||
+                (registerJob.FromLoc.Length is < 1 or > 20) ||
+                (registerJob.ToLoc.Length is < 1 or > 20) ||
+                ((registerJob.TaxiId is not null) && (!await repository.AnyTaxiAsync(registerJob.TaxiId, token))))
+            {
+                return BadRequest(new
+                {
+                    error = "INVALID_REQUEST"
+                });
+            }
 
-        notifier.Publish(); // 変更イベント発火
-        return Created();
+            try
+            {
+                // タスク登録
+                await repository.CreateNewJobAsync(registerJob.FromLoc, registerJob.ToLoc, registerJob.TaxiId, token);
+            }
+            catch
+            {
+
+            }
+
+            /* タクシー割当拒否 */
+            if (false)
+            {
+                return BadRequest(new
+                {
+                    error = "INVALID_REQUEST"
+                });
+            }
+
+            // 完了処理
+            notifier.Publish(); // 変更イベント発火
+            return Created();
+        }
+        catch (Exception ex)
+        {
+            /* 何らかのエラー */
+            System.Diagnostics.Debug.WriteLine(ex);
+            return StatusCode(500);
+        }
     }
 
     // 実行中JOB個数取得

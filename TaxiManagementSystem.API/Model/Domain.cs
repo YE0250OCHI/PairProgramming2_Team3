@@ -1,13 +1,37 @@
 ﻿namespace TaxiManagementSystem.API.Model;
 
 // JOBデータ
-public record Job(string Id, int StatusId, string TaxiId, string FromLoc, string ToLoc, DateTime ClosedAt);
+public record Job(
+    string Id,
+    JobStatus Status,
+    string? TaxiId,
+    string FromLoc,
+    string ToLoc,
+    DateTime? ClosedAt);
 
 // タクシーデータ
-public record Taxi(string Id, int StatusId, string DriverName);
+public record Taxi(
+    string Id,
+    TaxiStatus Status,
+    string DriverName);
 
-// JOB状態マスター
-public record JobStatus(string Id, string Name);
+// JOB状態Enum
+public enum JobStatus
+{
+    Queued = 1,
+    Waiting,
+    Active,
+    Aborting,
+    Completed,
+    Canceled,
+    Aborted
+}
 
-// タクシー状態マスター
-public record TaxiStatus(string Id, string Name);
+// タクシー状態Enum
+public enum TaxiStatus
+{
+    Idle = 1,
+    Reserved,
+    Occupied,
+    OffDuty
+}
