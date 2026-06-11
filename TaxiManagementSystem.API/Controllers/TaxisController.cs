@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using System.Diagnostics;
 using TaxiManagementSystem.API.Model;
 using TaxiManagementSystem.API.Notifier;
 using TaxiManagementSystem.API.Repository;
