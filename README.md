@@ -221,23 +221,9 @@ stateDiagram-v2
 |taxi_status_id|INT|NOT NULL, FK(taxi_status.id)|タクシーの現在状態|
 |driver_name|NVARCHAR(20)|NOT NULL|運転手の名前|
 
-### job_status：JOBの状態
-
-|物理カラム名|データ型|制約|備考|
-|---|---|---|---|
-|id|INT|PK,IDENTITY|自動採番|
-|status_name|NVARCHAR(10)|NOT NULL, UNIQUE|ステータス名|
-
-### taxi_status：タクシーの状態
-
-|物理カラム名|データ型|制約|備考|
-|---|---|---|---|
-|id|INT|PK,IDENTITY|自動採番|
-|status_name|NVARCHAR(10)|NOT NULL, UNIQUE|ステータス名|
-
 ## マスターデータ定義
 
-### job_status：JOBの状態
+### JOBの状態
 
 |id|status_name|
 |---|---|
@@ -249,7 +235,7 @@ stateDiagram-v2
 |6|Canceled|
 |7|Aborted|
 
-### taxi_status：タクシーの状態
+### タクシーの状態
 
 |id|status_name|
 |---|---|
@@ -259,28 +245,6 @@ stateDiagram-v2
 |4|OffDuty|
 
 ## ロギング設計
-
-### システムログ
-
-|ログレベル|出力タイミング|メッセージ例|
-|---|---|---|
-|INFO|アプリ起動/終了|アプリケーション起動|
-|WARN|制約付き実行|localhostで起動|
-|FATAL|DB接続エラー、通信確立失敗|通信確立失敗：アクセスを拒否されました|
-
-### JOB状態遷移
-
-|ログレベル|出力タイミング|メッセージ例|
-|---|---|---|
-|INFO|状態遷移時|J001:QUEUED->WAITING:TX001|
-|WARN|状態遷移不可|J001:WAITING->COMPLETED:INVALID_TRANSITION|
-
-### タクシー状態遷移ログ
-
-|ログレベル|出力タイミング|メッセージ例|
-|---|---|---|
-|INFO|状態遷移時|TX001:IDLE->RESERVED:J001|
-|WARN|状態遷移不可|TX001:RESERVED->OFFDUTY:INVALID_TRANSITION|
 
 ### DB操作ログ
 
