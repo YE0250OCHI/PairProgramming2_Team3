@@ -11,5 +11,18 @@
         "Action": "Start"
       }
     ]
+  },
+  {
+    "Name": "API＋スタブ",
+    "Projects": [
+      {
+        "Path": "TaxiManagementSystem.API\\TaxiManagementSystem.API.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "TaxiManagementSystem.TaxiStab\\TaxiManagementSystem.TaxiStab.csproj",
+        "Action": "StartWithoutDebugging"
+      }
+    ]
   }
 ]

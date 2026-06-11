@@ -191,7 +191,7 @@ public class JobsController(ITMSRepository repository, ILogger<JobsController> l
             if ((registerJob is null) ||
                 (registerJob.FromLoc.Length is < 1 or > 20) ||
                 (registerJob.ToLoc.Length is < 1 or > 20) ||
-                ((registerJob.TaxiId is not null) && (!await repository.AnyTaxiAsync(registerJob.TaxiId, token))))
+                (!string.IsNullOrWhiteSpace(registerJob.TaxiId) && (!await repository.AnyTaxiAsync(registerJob.TaxiId, token))))
             {
                 return BadRequest(new { error = "INVALID_REQUEST" });
             }

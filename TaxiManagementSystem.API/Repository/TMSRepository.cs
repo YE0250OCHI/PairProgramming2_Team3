@@ -1,5 +1,6 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Primitives;
 using System.Data;
 using System.Net.NetworkInformation;
 using System.Text;
@@ -75,12 +76,12 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
                 var newJobId = await GetNewJobIdAsync(connection, tran, token);
 
                 // JOB状態の決定
-                var jobStatus = taxiId is null ?
+                var jobStatus = string.IsNullOrWhiteSpace(taxiId) ?
                     JobStatus.Queued : /* 割り当てがないとき：Queued */
                     JobStatus.Waiting; /* 割り当てられたとき：Waiting */
 
                 // タクシーの割当チェック
-                if (taxiId is not null)
+                if (!string.IsNullOrWhiteSpace(taxiId))
                 {
                     // タクシー状態をtran内で変更
                     var taxiAffected = await connection.ExecuteAsync(
@@ -293,38 +294,89 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(token);
 
+            // トランザクション開始
+            await using var tran = await connection.BeginTransactionAsync(token);
+
             /*
              * 状態切替条件：
              * JOB状態が、QueuedかWaitngのときのみ、Canceledに変更可能
              */
 
-            // JOB状態をCanceledに変更
-            var jobAffected = await connection.ExecuteAsync(
-                """                    
+            try
+            {
+                // JOB状態をCanceledに変更
+                var jobAffected = await connection.ExecuteAsync(
+                    """                    
                 UPDATE jobs
-                SET job_status_id = @Canceled
+                SET
+                    job_status_id = @Canceled,
+                    closed_at = GETDATE()
                 WHERE id = @Id AND job_status_id IN (@Queued, @Waiting);
                 """,
-                new
+                    new
+                    {
+                        Id = jobId,
+                        Canceled = JobStatus.Canceled,
+                        Queued = JobStatus.Queued,
+                        Waiting = JobStatus.Waiting
+                    },
+                    tran);
+
+                // 影響したレコードが0件（=キャンセル可能なステータスじゃなかった）
+                if (jobAffected == 0)
                 {
-                    Id = jobId,
-                    Canceled = JobStatus.Canceled,
-                    Queued = JobStatus.Queued,
-                    Waiting = JobStatus.Waiting
-                });
+                    /* 状態切替失敗としてfalse */
+                    logger.LogWarning("[失敗]状態遷移異常：JOBキャンセル拒否");
+                    return false;
+                }
 
-            // 影響したレコードが0件（=キャンセル可能なステータスじゃなかった）
-            if (jobAffected == 0)
-            {
-                /* 状態切替失敗としてfalse */
-                logger.LogWarning("[失敗]状態遷移異常：JOBキャンセル拒否");
-                return false;
+                // このJOBのタクシーIDを取得
+                var taxiId = await connection.ExecuteScalarAsync<string>("""                    
+                    SELECT j.taxi_id
+                    FROM jobs j
+                    WHERE j.id = @id;
+                    
+                    """,
+                    new
+                    {
+                        Id = jobId
+                    }
+                    , tran);
+
+                // タクシー状態をtran内で変更
+                var taxiAffected = await connection.ExecuteAsync(
+                    """                    
+                    UPDATE taxis
+                    SET taxi_status_id  = @Idle
+                    WHERE id = @id;
+                    
+                    """,
+                    new
+                    {
+                        Id = taxiId,
+                        Idle = TaxiStatus.Idle
+                    }
+                    , tran);
+
+                // 影響したレコードが0件（=Idleじゃなかった）
+                if (taxiAffected == 0)
+                {
+                    /* ロールバックしてfalse */
+                    await tran.RollbackAsync(token);
+                    logger.LogWarning("[失敗]タクシー割当拒否");
+                    return false;
+                }
+
+                // 状態切替成功としてture
+                await tran.CommitAsync(token);
+                logger.LogInformation("[成功]JOBキャンセル");
+                return true;
             }
-
-            // 状態切替成功としてture
-            logger.LogInformation("[成功]JOBキャンセル");
-            return true;
-
+            catch
+            {
+                await tran.RollbackAsync(token); // ロールバックしてthrow
+                throw;
+            }
         }
         catch (Exception ex)
         {
@@ -353,7 +405,9 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
             var jobAffected = await connection.ExecuteAsync(
                 """                    
                 UPDATE jobs
-                SET job_status_id = @Aborting
+                SET
+                    job_status_id = @Aborting,
+                    closed_at = GETDATE()
                 WHERE id = @Id AND job_status_id = @Active;
                 """,
                 new
@@ -678,7 +732,7 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
         try
         {
             /* IDバリデーション */
-            if (await AnyTaxiAsync(id, token))
+            if (!await AnyTaxiAsync(id, token))
             {
                 logger.LogWarning("[失敗]存在しないタクシーID");
                 return false;
@@ -745,7 +799,7 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
 
 
                 /* JOB状態遷移確認 */
-                // このタクシーに割り当てられているJOBからJOB状態を取得
+                // このタクシーに割り当てられているJOBを取得
                 var assignedJob = await connection.QuerySingleOrDefaultAsync<Job>(new CommandDefinition(
                     """
                     SELECT                    
@@ -766,6 +820,7 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
                     {
                         Id = id
                     },
+                    tran,
                     cancellationToken: token));
 
                 // JOBが存在したら更新
@@ -775,14 +830,31 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
                     var currentJobStatus = assignedJob.Status;
                     var nextJobStatus = GetNextJobStatus(currentJobStatus);
 
-                    // JOB状態を更新
-                    var jobAffected = await connection.ExecuteAsync(
+
+                    // ID
+                    StringBuilder querySb = new();
+
+                    querySb.AppendLine(
                         """                    
                         UPDATE jobs
-                        SET job_status_id  = @NextJobStatus
-                        WHERE id = @id
-                        AND job_status_id = @CurrentJobStatus;
-                        """,
+                        SET
+                            job_status_id  = @NextJobStatus
+                        """);
+
+                    if(nextJobStatus is JobStatus.Completed or JobStatus.Aborted)
+                    {
+                        querySb.AppendLine(", closed_at = GETDATE()");
+                    }
+
+                    querySb.AppendLine(
+                        """
+                        WHERE id = @Id
+                        AND job_status_id = @CurrentJobStatus
+                        """);
+
+                    // JOB状態を更新
+                    var jobAffected = await connection.ExecuteAsync(
+                        querySb.ToString(),
                         new
                         {
                             Id = assignedJob.Id,
