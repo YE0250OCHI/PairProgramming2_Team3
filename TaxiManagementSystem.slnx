@@ -1,3 +1,8 @@
 <Solution>
+  <Folder Name="/ソリューション項目/">
+    <File Path="nlog.config" />
+  </Folder>
+  <Project Path="StabServer/StabServer.csproj" />
   <Project Path="TaxiManagementSystem.API/TaxiManagementSystem.API.csproj" Id="20f6896b-a0b2-45f4-98b3-864b2e929aad" />
+  <Project Path="TaxiManagementSystem.TaxiStab/TaxiManagementSystem.TaxiStab.csproj" />
 </Solution>

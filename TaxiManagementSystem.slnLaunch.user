@@ -1,0 +1,15 @@
+[
+  {
+    "Name": "スタブデバッグ",
+    "Projects": [
+      {
+        "Path": "StabServer\\StabServer.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "TaxiManagementSystem.TaxiStab\\TaxiManagementSystem.TaxiStab.csproj",
+        "Action": "Start"
+      }
+    ]
+  }
+]

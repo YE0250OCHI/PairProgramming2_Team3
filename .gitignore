@@ -1,3 +1,7 @@
 /.vs
 /TaxiManagementSystem.API/obj
 /TaxiManagementSystem.API/bin
+/StabServer/bin
+/StabServer/obj
+/TaxiManagementSystem.TaxiStab/bin
+/TaxiManagementSystem.TaxiStab/obj
