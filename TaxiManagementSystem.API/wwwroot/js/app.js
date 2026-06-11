@@ -21,23 +21,7 @@ async function loadDashboardCards() {
         document.getElementById("totalTaxiCount").innerText = (await taxis.json()).count;
         document.getElementById("availableTaxiCount").innerText = (await available.json()).count;
         //*************Added for test  *********************************************/
-        // const response =
-        //     await fetch(`${API_BASE_URL}/counts`);
 
-        // const counts =
-        //     await response.json();
-
-        // document.getElementById("activeJobsCount").innerText =
-        //     counts.activeJobs;
-
-        // document.getElementById("completedJobsCount").innerText =
-        //     counts.completedToday;
-
-        // document.getElementById("totalTaxiCount").innerText =
-        //     counts.totalTaxis;
-
-        // document.getElementById("availableTaxiCount").innerText =
-        //     counts.availableTaxis;
 
     }
     catch (err) {
@@ -70,23 +54,7 @@ async function handleReload(buttonElement) {
     );
 
     buttonElement.classList.remove("is-loading");
-    // try
-    // {
-    //     buttonElement.classList.add('is-loading');
-
-    //     await loadJobs(true);
-    //     await loadDashboardCards();
-
-    //     console.log("Reload completed");
-    // }
-    // catch(error)
-    // {
-    //     console.error(error);
-    // }
-    // finally
-    // {
-    //     buttonElement.classList.remove('is-loading');
-    // }
+   
 }
 // Keep the spinner for at least 1 second for better UX   
 
