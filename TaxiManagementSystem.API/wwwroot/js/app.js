@@ -1,68 +1,112 @@
-    const API_BASE_URL = "http://localhost:3000";  // Need to replace with  partner's URL 
+    const API_BASE_URL = "http://172.16.7.10:8080";  // Need to replace with  partner's URL 
 
    
     // for dashboard cards, fecth counts from API and update the innerText of the respective elements
+    //ダッシュボードカードの場合、APIからカウントを取得し、それぞれの要素のinnerTextを更新します。
 async function loadDashboardCards() {
 
     try {
 
-        const active = await fetch(`${API_BASE_URL}/api/jobs/count`);
-        const completed = await fetch(`${API_BASE_URL}/api/jobs/history/count/today`);
-        const taxis = await fetch(`${API_BASE_URL}/api/taxis/count`);
-        const available = await fetch(`${API_BASE_URL}/api/taxis/available/count`);
-        document.getElementById("activeJobsCount").innerText = (await active.json()).count;
-        document.getElementById("completedJobsCount").innerText = (await completed.json()).count;
-        document.getElementById("totalTaxiCount").innerText = (await taxis.json()).count;
-        document.getElementById("availableTaxiCount").innerText = (await available.json()).count;
+        // //   API_BASE_URL}/api/jobs/count
+        // const active = await fetch(`${API_BASE_URL}/counts`);
+        // //API_BASE_URL}/api/jobs/history/count/today`
+        // const completed = await fetch(`${API_BASE_URL}/counts`);
+        // //API_BASE_URL}/api/taxis/count
+        // const taxis = await fetch(`${API_BASE_URL}/counts`);
+        // //API_BASE_URL}/api/taxis/available/count
+        // const available = await fetch(`${API_BASE_URL}/counts`);
+        // console.log(active);
+        // document.getElementById("activeJobsCount").innerText = (await active.json()).count;
+        // document.getElementById("completedJobsCount").innerText = (await completed.json()).count;
+        // document.getElementById("totalTaxiCount").innerText = (await taxis.json()).count;
+        // document.getElementById("availableTaxiCount").innerText = (await available.json()).count;
+        //*************Added for test  *********************************************/
+        const response =
+            await fetch(`${API_BASE_URL}/counts`);
+
+        const counts =
+            await response.json();
+
+        document.getElementById("activeJobsCount").innerText =
+            counts.activeJobs;
+
+        document.getElementById("completedJobsCount").innerText =
+            counts.completedToday;
+
+        document.getElementById("totalTaxiCount").innerText =
+            counts.totalTaxis;
+
+        document.getElementById("availableTaxiCount").innerText =
+            counts.availableTaxis;
 
     }
-    catch (err)
-    {
+    catch (err) {
         console.error(err);
     }
 }
 
     // 1. Flag to keep track of whether the dashboard has loaded its initial data
+    // ダッシュボードが初期データを読み込んだかどうかを追跡するためのフラグ
     let isInitialLoad = true;
     // 2. This runs automatically when the browser window finishes loading
-    window.addEventListener('DOMContentLoaded', () => {
-        loadJobs();
-        //loadDashboardCards();
-        isInitialLoad = false; // Turn off the flag immediately after the first load
+    //これはブラウザウィンドウの読み込みが完了すると自動的に実行されます。
+    window.addEventListener('DOMContentLoaded', async() => {
+        await loadJobs();
+        loadDashboardCards();
+        isInitialLoad = false; // 最初の読み込みが終わったらすぐにフラグをオフにする_Turn off the flag immediately after the first load
     });
 
     //loadJobs();
-   async  function handleReload(buttonElement) 
-    {
-        // 1. Start the visual spin animation and disable button
-        buttonElement.classList.add('is-loading');
+    //Reload button processing
+    //リロードボタンの処理
+async function handleReload(buttonElement)
+{
+    buttonElement.classList.add("is-loading");
 
-        // 2. Call your original data fetching function
-        await loadJobs(true);
-        await loadDashboardCards();
-        
-            buttonElement.classList.remove("is-loading");
-        
-    }
+    await loadJobs(true);
+    await loadDashboardCards();
+
+    await new Promise(resolve =>
+        setTimeout(resolve,1000)
+    );
+
+    buttonElement.classList.remove("is-loading");
+    // try
+    // {
+    //     buttonElement.classList.add('is-loading');
+
+    //     await loadJobs(true);
+    //     await loadDashboardCards();
+
+    //     console.log("Reload completed");
+    // }
+    // catch(error)
+    // {
+    //     console.error(error);
+    // }
+    // finally
+    // {
+    //     buttonElement.classList.remove('is-loading');
+    // }
+}
  // Keep the spinner for at least 1 second for better UX   
     
     // 3. This function fetches the list of available taxis from the API
+    //この関数は、APIから利用可能なタクシーのリストを取得します。
     async function getAvailableTaxis() 
     {
 
     const response =
         await fetch(
-            `${API_BASE_URL}/api/taxis/available`
+            //`${API_BASE_URL}/api/taxis/available`
+            `${API_BASE_URL}/taxis`
         );
 
     return await response.json();
 
   }
 
-  const taxis =  getAvailableTaxis();
-
-
-
+ // const taxis =  getAvailableTaxis();
 
     function showPage(pageId) 
     {
@@ -85,93 +129,98 @@ async function loadDashboardCards() {
             loadTaxiDropdown();
     }
 
-async function loadJobs(isManualReload = false) 
-{
-     if (!isInitialLoad && !isManualReload)
-        {
-         console.log("Skipping update. Dashboard only updates when reload is clicked.");
-         return;
-      }
-    try 
-    {
-        //const response = await fetch(`${API_BASE_URL}/api/jobs`);
-        const response = await fetch(`${API_BASE_URL}/jobs`);
+    //function for display main dashboard page data and reload processing
+    //メインダッシュボードページのデータ表示と再読み込み処理を行う関数()
+async function loadJobs(isManualReload = false) {
+    console.log("loadJobs started");
+    if (!isInitialLoad && !isManualReload) {
+        console.log("Skipping update. Dashboard only updates when reload is clicked.");
+        console.log("loadJobs completed");
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/jobs`);
         const jobs = await response.json();
+        console.log("Jobs fetched:", jobs);
+
+        const availableTaxis = await getAvailableTaxis();
+
+        const tbody = document.querySelector("#jobTable tbody");
+        console.log("tbody =", tbody);
+        console.log("jobs count =", jobs.length);
+        console.log("first job =", jobs[0]);
+        tbody.innerHTML = "";
+
+        jobs.forEach(job => {
+            let taxiCell = "";
+
+            if (!job.taxiId) {
+                const idleOptions = availableTaxis
+                    .filter(t => t.status === "Idle")
+                    .map(t =>
+                        `<option value="${t.taxiId}">
+                            ${t.taxiId}
+                        </option>`
+                    )
+                    .join("");
+
+                taxiCell = `
+                    <select class="modern-select"
+                        onchange="assignTaxi('${job.jobId}',this.value)">
+                        <option value="" disabled selected>
+                            Select
+                        </option>
+                        ${idleOptions}
+                    </select>
+                `;
+            }
+            else {
+                taxiCell = job.taxiId;
+            }
+
+            const actionText =
+                (job.status === "Queued" ||
+                    job.status === "Waiting")
+                    ? "Cancel"
+                    : "Abort";
+
+            const actionClass =
+                actionText === "Cancel"
+                    ? "cancel"
+                    : "abort";
+
+            tbody.innerHTML += `
+                <tr>
+                    <td>${job.jobId}</td>
+                    <td>
+                       <span class="status-badge ${job.status}">
+                          ${job.status}
+                       </span>
+                    </td>
+                    <td>${job.fromLoc}</td>
+                    <td>${job.toLoc}</td>
+                    <td>${taxiCell}</td>
+                    <td>${job.driverName ?? "N/A"}</td>
+                    <td>
+                        <button
+                            class="action-btn ${actionClass}"
+                            onclick="updateJobStatus('${job.jobId}','${job.status}')">
+                            ${actionText}
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
     }
     catch(error)
     {
-         console.error(error);
+        console.error(error);
     }
-    // IF it's not the initial browser launch AND the user DID NOT press reload, skip the update
-   
-
-    console.log("Updating dashboard data...");
-    const tbody =
-        document.querySelector(
-            "#jobTable tbody"
-        );
-
-    tbody.innerHTML = "";
-
-    jobs.forEach(job => {
-        let taxiCell;
-
-        if (job.taxiId === null || !job.taxiId) {
-            const idleOptions = taxis
-                .filter(t => t.status === "Idle")
-                .map(t => `<option value="${t.taxiId}">${t.taxiId}</option>`)
-                .join("");
-
-            // Added the 'modern-select' class for styling
-            taxiCell = `
-            <select class="modern-select" onchange="assignTaxi('${job.jobId}', this.value)">
-                <option value="" disabled selected>Select</option>
-                ${idleOptions}
-            </select>
-        `;
-        }
-        else {
-            // Keeps flat string text structured uniformly inside cell
-            taxiCell = `<span>${job.taxiId}</span>`;
-        }
-
-        const actionText = (job.status === "Queued" || job.status === "Waiting") ? "Cancel" : "ABORT";
-        const actionClass = actionText === "Cancel" ? "cancel" : "abort";
-
-        // Standard high-utility inline SVG illustration for Driver Icon
-        const driverIconSvg = `
-        <svg class="driver-icon" xmlns="http://w3.org" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 21a6 6 0 0 0-12 0"/>
-            <circle cx="12" cy="10" r="4"/>
-            <path d="M12 2v2"/>
-        </svg>
-    `;
-
-        // Uniformly formats data rows using the fixed grid layouts
-        tbody.innerHTML += `
-        <tr>
-            <td><strong>${job.jobId}</strong></td>
-            <td><span class="status-badge ${job.status?.toLowerCase()}">${job.status || 'N/A'}</span></td>
-            <td>${job.fromLocLocLoc || '—'}</td> 
-            <td>${job.toLoc || '—'}</td>
-            <td>${taxiCell}</td>
-            <td>
-                <div class="driver-cell">
-                    ${driverIconSvg}
-                    <span>${job.driverName || 'N/A'}</span>
-                </div>
-            </td>
-            <td>
-                <button class="action-btn ${actionClass}" onclick="updateJobStatus('${job.jobId}','${job.status}')">
-                    ${actionText}
-                </button>
-            </td>
-        </tr>
-    `;
-    });
 }
 
     // 2. This function is called when the user selects a taxi from the dropdown 
+    //この関数は、ユーザーがドロップダウンリストからタクシーを選択したときに呼び出されます。
 
 async function assignTaxi(jobId,taxiId)
 {
@@ -207,7 +256,7 @@ async function assignTaxi(jobId,taxiId)
     }
 }
 
-//Cancel Button
+//Cancel ボタン
 async function cancelJob(jobId)
 {
 
@@ -219,15 +268,24 @@ async function cancelJob(jobId)
             }
         );
 
-    if(response.status === 204){
+    // if(response.status === 204){
 
-        loadJobs(true);
+    //     loadJobs(true);
 
+    // }
+        if (response.ok)
+    {
+        alert("Job Cancelled Successfully");
+        await loadJobs(true);
+    }
+    else
+    {
+        alert("Cancel Failed");
     }
 
 }
 
-//Abort Button
+//Abort ボタン
 async function abortJob(jobId)
 {
 
@@ -239,24 +297,58 @@ async function abortJob(jobId)
             }
         );
 
-    if(response.status === 204){
+    // if(response.status === 204){
 
-        loadJobs(true);
+    //     loadJobs(true);
 
+    // }
+    if (response.ok)
+    {
+        alert("Job Aborted Successfully");
+        await loadJobs(true);
+    }
+    else
+    {
+        alert("Abort Failed");
     }
 
 }
 
-    function updateJobStatus(jobId, jobStatus) 
-    {
-        if (status === "Queued" ||
-            status === "Waiting") {
-            cancelJob(jobId);
-        }
-        else {
-            abortJob(jobId);
-        }
+function updateJobStatus(jobId, status) {
+    // if (status === "Queued" ||
+    //     status === "Waiting") {
+    //     cancelJob(jobId);
+    // }
+    // else {
+    //     abortJob(jobId);
+    // }
+
+    //************Changed here ******************** */
+    let action = "";
+
+    if (status === "Queued" || status === "Waiting") {
+        action = "Cancel";
     }
+    else {
+        action = "Abort";
+    }
+
+    const confirmed = confirm(
+        `Are you sure you want to ${action} Job ${jobId}?`
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    if (action === "Cancel") {
+        cancelJob(jobId);
+    }
+    else {
+        abortJob(jobId);
+    }
+}
+
 
 async function loadTaxiDropdown()
 {
@@ -265,6 +357,8 @@ async function loadTaxiDropdown()
 
     const taxis =
         await getAvailableTaxis();
+
+        console.log(taxis);
 
     dropdown.innerHTML =
         '<option value="">Select Taxi</option>';
@@ -287,6 +381,20 @@ async function submitJob()
     const fromLoc = document.getElementById("fromInput").value;
     const toLoc = document.getElementById("toInput").value;
     const taxiId = document.getElementById("taxiDropdown").value;
+        if (!fromLoc || !toLoc)
+    {
+        alert("Please enter FROM and TO locations.");
+        return;
+    }
+
+    const confirmed = confirm(
+        `Create Job?\n\nFROM: ${fromLoc}\nTO: ${toLoc}\nTaxi: ${taxiId || "None"}`
+    );
+
+    if (!confirmed)
+    {
+        return;
+    }
     const response =
         await fetch(
             `${API_BASE_URL}/jobs`,
@@ -296,9 +404,12 @@ async function submitJob()
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
+                    jobId: "J" + Date.now(),
+                    status: "Queued",
                     fromLoc,
                     toLoc,
-                    taxiId
+                    taxiId,
+                    driverName: null
                 })
             }
         );
@@ -306,6 +417,9 @@ async function submitJob()
     if (response.status === 201) 
     {
         alert("Job Created");
+        await loadJobs(true);
+
+        showPage("dashboard");
 
     }
     else 
@@ -316,6 +430,8 @@ async function submitJob()
     }
 }
 
+
+//for Taxi State page 
 async function loadTaxiState()
 {
 
@@ -348,10 +464,10 @@ async function loadTaxiState()
     });
 }
 
+//For History Page
 async function loadHistory(){
 
-    const response =
-        await fetch(
+    const response = await fetch(
             `${API_BASE_URL}/history`
         );
 
@@ -370,10 +486,11 @@ async function loadHistory(){
         tbody.innerHTML += `
         <tr>
             <td>${job.jobId}</td>
-            <td>${job.fromLocLocLoc}</td>
             <td>${job.status}</td>
-            <td>${job.toLocLoc}</td>
+            <td>${job.fromLoc}</td>
+            <td>${job.toLoc}</td>
             <td>${job.taxiId ?? "-"}</td>
+            <td>${job.driverName ?? "-"}</td>
             <td>${job.closedAt}</td>
         </tr>
         `;

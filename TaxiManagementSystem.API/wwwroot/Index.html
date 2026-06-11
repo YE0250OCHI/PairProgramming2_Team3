@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>タクシー管理システム(Root)</title>
+    <title>タクシー管理システム</title>
 
     <link rel="stylesheet" href="css/style.css">
 
@@ -30,7 +30,7 @@
 
             <li onclick="showPage('createJob')">
                 <i class="fa-solid fa-briefcase"></i>
-                <span>Create JOB</span>
+                <span>Create Job</span>
             </li>
 
             <li onclick="showPage('taxiState')">
@@ -56,7 +56,7 @@
         <div class="topbar">
 
             <h2>
-                Taxi Management Dashboard
+                タクシー管理ダッシュボード
             </h2>
 
 
@@ -78,25 +78,23 @@
 
                 <div class="card">
                     <h3>本日の完了ジョブ</h3> <!-- Today's Completed Jobs -->
-                   <h2 id="completedJobsCount">0</h2>
+                    <h2 id="completedJobsCount">0</h2>
                 </div>
 
                 <div class="card">
                     <h3>全タクシー</h3> <!-- Total Taxis -->
-                   <h2 id="totalTaxiCount">0</h2>
+                    <h2 id="totalTaxiCount">0</h2>
                 </div>
 
                 <div class="card">
                     <h3>利用可能タクシー</h3> <!-- Available Taxis -->
-                     <h2 id="availableTaxiCount">0</h2>
+                    <h2 id="availableTaxiCount">0</h2>
                 </div>
 
             </div>
 
             <div class="toolbar">
-                <!-- Added modern class and custom click handler state -->
                 <button class="btn-reload" onclick="handleReload(this)">
-                    <!-- Inline modern SVG spin icon -->
                     <svg xmlns="http://w3.org" width="16" height="16" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
                         class="icon-refresh">
@@ -105,7 +103,7 @@
                         <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
                         <path d="M16 16h5v5" />
                     </svg>
-                    <span>再読み込み</span> <!-- Japanese for "Reload / Refresh" -->
+                    <span>再読み込み</span> 
                 </button>
             </div>
 
