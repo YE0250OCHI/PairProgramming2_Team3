@@ -302,7 +302,9 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
             var jobAffected = await connection.ExecuteAsync(
                 """                    
                 UPDATE jobs
-                SET job_status_id = @Canceled
+                SET
+                    job_status_id = @Canceled,
+                    closed_at = GETDATE()
                 WHERE id = @Id AND job_status_id IN (@Queued, @Waiting);
                 """,
                 new
@@ -353,7 +355,9 @@ public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> 
             var jobAffected = await connection.ExecuteAsync(
                 """                    
                 UPDATE jobs
-                SET job_status_id = @Aborting
+                SET
+                    job_status_id = @Aborting,
+                    closed_at = GETDATE()
                 WHERE id = @Id AND job_status_id = @Active;
                 """,
                 new

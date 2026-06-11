@@ -19,6 +19,21 @@ builder.WebHost.ConfigureKestrel(options =>
     options.ListenAnyIP(8080);
 });
 
+// オリジンの許可
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("DebugCors", policy =>
+    {
+        policy
+            .WithOrigins(
+                "http://localhost:5502",
+                "http://127.0.0.1:5502"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -39,6 +54,11 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
+
+app.UseCors("DebugCors");
+
+app.UseDefaultFiles(); // index.htmlを自動表示
+app.UseStaticFiles();
 
 app.MapControllers();
 
