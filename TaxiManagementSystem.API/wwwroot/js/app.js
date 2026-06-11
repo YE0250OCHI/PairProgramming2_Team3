@@ -437,7 +437,7 @@ async function loadTaxiState()
 
     const response =
         await fetch(
-            `${API_BASE_URL}api/taxis`
+            `${API_BASE_URL}/api/taxis`
         );
 
     const taxis =
@@ -457,7 +457,7 @@ async function loadTaxiState()
             <td>${taxi.taxiId}</td>
             <td>${taxi.status}</td>
             <td>${taxi.driverName}</td>
-            <td>${taxi.jobId }</td>
+            <td>${taxi.jobId ?? "N/A"}</td>
         </tr>
         `;
 
