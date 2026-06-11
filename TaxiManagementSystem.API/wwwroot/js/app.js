@@ -7,37 +7,37 @@ async function loadDashboardCards() {
 
     try {
 
-        // //   API_BASE_URL}/api/jobs/count
-        // const active = await fetch(`${API_BASE_URL}/counts`);
-        // //API_BASE_URL}/api/jobs/history/count/today`
-        // const completed = await fetch(`${API_BASE_URL}/counts`);
-        // //API_BASE_URL}/api/taxis/count
-        // const taxis = await fetch(`${API_BASE_URL}/counts`);
-        // //API_BASE_URL}/api/taxis/available/count
-        // const available = await fetch(`${API_BASE_URL}/counts`);
-        // console.log(active);
-        // document.getElementById("activeJobsCount").innerText = (await active.json()).count;
-        // document.getElementById("completedJobsCount").innerText = (await completed.json()).count;
-        // document.getElementById("totalTaxiCount").innerText = (await taxis.json()).count;
-        // document.getElementById("availableTaxiCount").innerText = (await available.json()).count;
+        //   API_BASE_URL}/api/jobs/count
+        const active = await fetch(`${API_BASE_URL}/api/jobs/count`);
+        //API_BASE_URL}/api/jobs/history/count/today`
+        const completed = await fetch(`${API_BASE_URL}/api/jobs/history/count/today`);
+        //API_BASE_URL}/api/taxis/count
+        const taxis = await fetch(`${API_BASE_URL}/api/taxis/count`);
+        //API_BASE_URL}/api/taxis/available/count
+        const available = await fetch(`${API_BASE_URL}/api/taxis/available/count`);
+        console.log(active);
+        document.getElementById("activeJobsCount").innerText = (await active.json()).count;
+        document.getElementById("completedJobsCount").innerText = (await completed.json()).count;
+        document.getElementById("totalTaxiCount").innerText = (await taxis.json()).count;
+        document.getElementById("availableTaxiCount").innerText = (await available.json()).count;
         //*************Added for test  *********************************************/
-        const response =
-            await fetch(`${API_BASE_URL}/counts`);
+        // const response =
+        //     await fetch(`${API_BASE_URL}/counts`);
 
-        const counts =
-            await response.json();
+        // const counts =
+        //     await response.json();
 
-        document.getElementById("activeJobsCount").innerText =
-            counts.activeJobs;
+        // document.getElementById("activeJobsCount").innerText =
+        //     counts.activeJobs;
 
-        document.getElementById("completedJobsCount").innerText =
-            counts.completedToday;
+        // document.getElementById("completedJobsCount").innerText =
+        //     counts.completedToday;
 
-        document.getElementById("totalTaxiCount").innerText =
-            counts.totalTaxis;
+        // document.getElementById("totalTaxiCount").innerText =
+        //     counts.totalTaxis;
 
-        document.getElementById("availableTaxiCount").innerText =
-            counts.availableTaxis;
+        // document.getElementById("availableTaxiCount").innerText =
+        //     counts.availableTaxis;
 
     }
     catch (err) {
@@ -99,7 +99,7 @@ async function handleReload(buttonElement)
     const response =
         await fetch(
             //`${API_BASE_URL}/api/taxis/available`
-            `${API_BASE_URL}/taxis`
+            `${API_BASE_URL}/api/taxis/available`
         );
 
     return await response.json();
@@ -154,10 +154,10 @@ async function loadJobs(isManualReload = false) {
 
         jobs.forEach(job => {
             let taxiCell = "";
-
+//.filter(t => t.status === "Idle")
             if (!job.taxiId) {
                 const idleOptions = availableTaxis
-                    .filter(t => t.status === "Idle")
+                    
                     .map(t =>
                         `<option value="${t.taxiId}">
                             ${t.taxiId}
@@ -227,7 +227,7 @@ async function assignTaxi(jobId,taxiId)
 
     const response =
         await fetch(
-            `${API_BASE_URL}/jobs/${jobId}/reassign`,
+            `${API_BASE_URL}/api/jobs/${jobId}/reassign`,
             {
                 method:"PUT",
                 headers:{
@@ -262,7 +262,7 @@ async function cancelJob(jobId)
 
     const response =
         await fetch(
-            `${API_BASE_URL}/jobs/${jobId}/cancel`,
+            `${API_BASE_URL}/api/jobs/${jobId}/cancel`,
             {
                 method:"PUT"
             }
@@ -291,7 +291,7 @@ async function abortJob(jobId)
 
     const response =
         await fetch(
-            `${API_BASE_URL}/jobs/${jobId}/abort`,
+            `${API_BASE_URL}/api/jobs/${jobId}/abort`,
             {
                 method:"PUT"
             }
@@ -397,7 +397,7 @@ async function submitJob()
     }
     const response =
         await fetch(
-            `${API_BASE_URL}/jobs`,
+            `${API_BASE_URL}api/jobs`,
             {
                 method: "POST",
                 headers: {
@@ -437,7 +437,7 @@ async function loadTaxiState()
 
     const response =
         await fetch(
-            `${API_BASE_URL}/taxis`
+            `${API_BASE_URL}api/taxis`
         );
 
     const taxis =
@@ -468,7 +468,7 @@ async function loadTaxiState()
 async function loadHistory(){
 
     const response = await fetch(
-            `${API_BASE_URL}/history`
+            `${API_BASE_URL}/api/jobs/history`
         );
 
     const jobs =
