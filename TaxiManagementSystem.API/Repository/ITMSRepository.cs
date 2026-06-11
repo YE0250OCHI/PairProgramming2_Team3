@@ -20,7 +20,7 @@ public interface ITMSRepository
     Task<bool> TryCancelJobAsync(string jobId, CancellationToken token);
 
     // JOB中断
-    Task<bool> TryAbortJobAsync(string abortId, CancellationToken token);
+    Task<bool> TryAbortJobAsync(string jobId, CancellationToken token);
 
     // 運行履歴取得
     Task<List<Job>> GetHistoryAsync(HistoryFilter filter, CancellationToken token);
@@ -29,7 +29,7 @@ public interface ITMSRepository
     Task<int> GetTodayHistoryCountAsync(CancellationToken token);
 
     // タクシー一覧取得
-    Task<List<(Taxi Taxi,string JobId)>> GetTaxisAsync(CancellationToken token);
+    Task<List<Taxi>> GetTaxisAsync(CancellationToken token);
 
     // タクシーの台数取得
     Task<int> GetTaxisCountAsync(CancellationToken token);
@@ -40,14 +40,14 @@ public interface ITMSRepository
     // 割当可能なタクシーの台数取得
     Task<int> GetAvailableTaxisCountAsync(CancellationToken token);
 
-    // タクシーの情報取得
-    Task<(Taxi CurrentTaxi,Job CurrentJob)> GetCurrentTaxiInfoAsync(string id, CancellationToken token);
+    // タクシーの情報取得（割当JOB）
+    Task<TaxiInfo> GetCurrentTaxiInfoAsync(string id, CancellationToken token);
 
     // タクシー状態の更新
-    Task SetCurrentTaxiStatusAsync(string id, string status, CancellationToken token);
+    Task<bool> SetCurrentTaxiStatusAsync(string id, TaxiStatus status, CancellationToken token);
 
     // JOB IDの存在確認
-    Task<bool> AnyJobAsync(string id, CancellationToken token);
+    Task<bool> AnyActiveJobAsync(string id, CancellationToken token);
 
     // タクシーIDの存在確認
     Task<bool> AnyTaxiAsync(string id, CancellationToken token);

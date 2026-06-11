@@ -1,11 +1,13 @@
 using Scalar.AspNetCore;
 using TaxiManagementSystem.API.Notifier;
+using TaxiManagementSystem.API.Repository;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddSingleton<EventNotifier>();
+builder.Services.AddScoped<ITMSRepository, TMSRepository>();
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

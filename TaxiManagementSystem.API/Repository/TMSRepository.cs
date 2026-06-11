@@ -1,12 +1,13 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
 using System.Data;
-using System.Data.Common;
+using System.Net.NetworkInformation;
+using System.Text;
 using TaxiManagementSystem.API.Model;
 
 namespace TaxiManagementSystem.API.Repository;
 
-public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSRepository
+public class TMSRepository(IConfiguration configuration, ILogger<TMSRepository> logger) : ITMSRepository
 {
     // ===== フィールド =====
 
@@ -32,12 +33,16 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
                     SELECT                    
                         j.id AS [Id],
                         j.job_status_id AS [Status],
-                        j.taxi_id AS [TaxiId],
                         j.from_loc AS [FromLoc],
                         j.to_loc AS [ToLoc],
+                        j.taxi_id AS [TaxiId],
+                        t.driver_name AS [DriverName],
                         j.closed_at AS [ClosedAt]
                     FROM jobs j
-                    WHERE j.closed_at IS NULL;
+                    LEFT JOIN taxis t
+                        ON t.id = j.taxi_id
+                    WHERE j.closed_at IS NULL
+                    ORDER BY j.id ASC;
                     """,
                     cancellationToken: token));
 
@@ -47,7 +52,7 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]JOB一覧取得");
+            logger.LogError(ex, "[エラー]JOB一覧取得");
             throw;
         }
     }
@@ -77,18 +82,18 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
                 // タクシーの割当チェック
                 if (taxiId is not null)
                 {
-                    // タクシーステータスをtran内で変更
+                    // タクシー状態をtran内で変更
                     var taxiAffected = await connection.ExecuteAsync(
                         """
-                    UPDATE taxis
-                    SET taxi_status_id  = @reserved
-                    WHERE id = @id AND taxi_status_id = @idle;
-                    """,
+                        UPDATE taxis
+                        SET taxi_status_id  = @Reserved
+                        WHERE id = @Id AND taxi_status_id = @Idle;
+                        """,
                         new
                         {
-                            id = taxiId,
-                            reserved = TaxiStatus.Reserved,
-                            idle = TaxiStatus.Idle
+                            Id = taxiId,
+                            Reserved = TaxiStatus.Reserved,
+                            Idle = TaxiStatus.Idle
                         }
                         , tran);
 
@@ -97,29 +102,29 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
                     {
                         /* ロールバックしてfalse */
                         await tran.RollbackAsync(token);
-                        logger.LogError("[失敗]タクシー割当拒否");
+                        logger.LogWarning("[失敗]タクシー割当拒否");
                         return false;
                     }
                 }
 
-                // JOB更新
-                await connection.ExecuteAsync(
+                // JOBを登録
+                var jobAffected = await connection.ExecuteAsync(
                     """
-                INSERT INTO jobs(
-                    id,
-                    job_status_id,
-                    from_loc,
-                    to_loc,
-                    taxi_id
-                )
-                VALUES (
-                    @Id,
-                    @Status,
-                    @FromLoc,
-                    @ToLoc,
-                    @TaxiId
-                );
-                """,
+                    INSERT INTO jobs(
+                        id,
+                        job_status_id,
+                        from_loc,
+                        to_loc,
+                        taxi_id
+                    )
+                    VALUES (
+                        @Id,
+                        @Status,
+                        @FromLoc,
+                        @ToLoc,
+                        @TaxiId
+                    );
+                    """,
                     new
                     {
                         Id = newJobId,
@@ -130,9 +135,18 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
                     },
                     tran);
 
+                // 影響したレコードが0件（=カラム制約違反など）
+                if (jobAffected == 0)
+                {
+                    /* ロールバックしてfalse */
+                    await tran.RollbackAsync(token);
+                    logger.LogWarning("[失敗]登録データ不正");
+                    return false;
+                }
+
                 // コミットしてture
                 await tran.CommitAsync(token);
-                logger.LogInformation("[成功]JOB登録完了");
+                logger.LogInformation("[成功]JOB登録");
                 return true;
             }
             catch
@@ -144,7 +158,7 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]JOB登録失敗");
+            logger.LogError(ex, "[エラー]JOB登録");
             throw;
         }
     }
@@ -158,20 +172,22 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(token);
 
-            logger.LogInformation("[成功]実行中JOB個数取得");
-            return await connection.ExecuteScalarAsync<int>(
+            var count = await connection.ExecuteScalarAsync<int>(
                 new CommandDefinition(
                     """
-                SELECT Count(*)
-                FROM jobs j
-                WHERE j.closed_at IS NULL;
-                """,
+                    SELECT Count(*)
+                    FROM jobs j
+                    WHERE j.closed_at IS NULL;
+                    """,
                     cancellationToken: token));
+
+            logger.LogInformation("[成功]実行中JOB個数取得");
+            return count;
         }
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]実行中JOB個数取得");
+            logger.LogError(ex, "[エラー]実行中JOB個数取得");
             throw;
         }
     }
@@ -185,13 +201,85 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(token);
 
-            /* 割当失敗：bool */
+            // トランザクション開始
+            await using var tran = await connection.BeginTransactionAsync(token);
 
+            /*
+             * 割当成功条件：
+             * JOB状態がQueuedのみ操作可能
+             * タクシー状態がIdleのものを割当可能
+             */
+            try
+            {
+                // タクシー状態をtran内で変更
+                var taxiAffected = await connection.ExecuteAsync(
+                    """                    
+                    UPDATE taxis
+                    SET taxi_status_id  = @Reserved
+                    WHERE id = @id AND taxi_status_id = @Idle;
+                    
+                    """,
+                    new
+                    {
+                        Id = taxiId,
+                        Reserved = TaxiStatus.Reserved,
+                        Idle = TaxiStatus.Idle
+                    }
+                    , tran);
+
+                // 影響したレコードが0件（=Idleじゃなかった）
+                if (taxiAffected == 0)
+                {
+                    /* ロールバックしてfalse */
+                    await tran.RollbackAsync(token);
+                    logger.LogWarning("[失敗]タクシー割当拒否");
+                    return false;
+                }
+
+                // JOB状態を更新
+                var jobAffected = await connection.ExecuteAsync(
+                    """
+                    UPDATE jobs
+                    SET
+                        job_status_id = @Waiting,
+                        taxi_id = @TaxiId
+                    WHERE id = @Id
+                    AND job_status_id = @Queued
+                    AND closed_at IS NULL;
+                    """,
+                    new
+                    {
+                        Id = jobId,
+                        Waiting = JobStatus.Waiting,
+                        Queued = JobStatus.Queued,
+                        TaxiId = taxiId
+                    },
+                    tran);
+
+                // 影響したレコードが0件（=Queuedじゃなかった）
+                if (jobAffected == 0)
+                {
+                    /* ロールバックしてfalse */
+                    await tran.RollbackAsync(token);
+                    logger.LogWarning("[失敗]状態遷移異常：");
+                    return false;
+                }
+
+                // コミットしてture
+                await tran.CommitAsync(token);
+                logger.LogInformation("[成功]タクシー再割当");
+                return true;
+            }
+            catch
+            {
+                await tran.RollbackAsync(token); // ロールバックしてthrow
+                throw;
+            }
         }
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]実行中JOB個数取得");
+            logger.LogError(ex, "[エラー]タクシー再割当");
             throw;
         }
     }
@@ -205,19 +293,49 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(token);
 
-            /* 割当失敗：bool */
+            /*
+             * 状態切替条件：
+             * JOB状態が、QueuedかWaitngのときのみ、Canceledに変更可能
+             */
+
+            // JOB状態をCanceledに変更
+            var jobAffected = await connection.ExecuteAsync(
+                """                    
+                UPDATE jobs
+                SET job_status_id = @Canceled
+                WHERE id = @Id AND job_status_id IN (@Queued, @Waiting);
+                """,
+                new
+                {
+                    Id = jobId,
+                    Canceled = JobStatus.Canceled,
+                    Queued = JobStatus.Queued,
+                    Waiting = JobStatus.Waiting
+                });
+
+            // 影響したレコードが0件（=キャンセル可能なステータスじゃなかった）
+            if (jobAffected == 0)
+            {
+                /* 状態切替失敗としてfalse */
+                logger.LogWarning("[失敗]状態遷移異常：JOBキャンセル拒否");
+                return false;
+            }
+
+            // 状態切替成功としてture
+            logger.LogInformation("[成功]JOBキャンセル");
+            return true;
 
         }
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]実行中JOB個数取得");
+            logger.LogError(ex, "[エラー]JOBキャンセル");
             throw;
         }
     }
 
     // JOB中断
-    public async Task<bool> TryAbortJobAsync(string abortId, CancellationToken token)
+    public async Task<bool> TryAbortJobAsync(string jobId, CancellationToken token)
     {
         try
         {
@@ -225,13 +343,42 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(token);
 
-            /* 割当失敗：bool */
+            /*
+             * 状態切替条件：
+             * JOB状態が、ActiveのときにAbortingに変更可能
+             * Aborting→Aborted（タクシー側操作）
+             */
 
+            // JOB状態をAbortingに変更
+            var jobAffected = await connection.ExecuteAsync(
+                """                    
+                UPDATE jobs
+                SET job_status_id = @Aborting
+                WHERE id = @Id AND job_status_id = @Active;
+                """,
+                new
+                {
+                    Id = jobId,
+                    Aborting = JobStatus.Aborting,
+                    Active = JobStatus.Active
+                });
+
+            // 影響したレコードが0件（=中断可能なステータスじゃなかった）
+            if (jobAffected == 0)
+            {
+                /* 状態切替失敗としてfalse */
+                logger.LogWarning("[失敗]状態遷移異常：JOB中断拒否");
+                return false;
+            }
+
+            // 状態切替成功としてture
+            logger.LogInformation("[成功]JOB中断");
+            return true;
         }
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]実行中JOB個数取得");
+            logger.LogError(ex, "[エラー]JOB中断");
             throw;
         }
     }
@@ -241,17 +388,97 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
     {
         try
         {
+            ArgumentNullException.ThrowIfNull(filter, nameof(filter));
+
+            // フィルターの追加
+            StringBuilder querySb = new();
+
+            // クエリ文本体
+            querySb.AppendLine("""
+                SELECT                    
+                    j.id AS [Id],
+                    j.job_status_id AS [Status],
+                    j.from_loc AS [FromLoc],
+                    j.to_loc AS [ToLoc],
+                    j.taxi_id AS [TaxiId],
+                    t.driver_name AS [DriverName],
+                    j.closed_at AS [ClosedAt]
+                FROM jobs j
+                LEFT JOIN taxis t
+                    ON t.id = j.taxi_id
+                WHERE j.closed_at IS NOT NULL
+                """);
+
+            // ステータスフィルタ
+            JobStatus? status = null;
+            if (!string.IsNullOrWhiteSpace(filter.Status))
+            {
+                if (!Enum.TryParse<JobStatus>(filter.Status, out var parsed))
+                {
+                    throw new ArgumentException($"ステータス異常：{filter.Status}");
+                }
+                status = parsed;
+                querySb.AppendLine("AND j.job_status_id = @Status");
+            }
+
+            // タクシーIDフィルタ
+            if (!string.IsNullOrWhiteSpace(filter.TaxiId))
+            {
+                querySb.AppendLine("AND j.taxi_id = @TaxiId");
+            }
+
+            // ドライバー名フィルタ
+            if (!string.IsNullOrWhiteSpace(filter.DriverName))
+            {
+                querySb.AppendLine("AND t.driver_name = @DriverName");
+            }
+
+            // 終了日フィルタ
+            if ((filter.From is not null) != (filter.To is not null))
+            {
+                /* 終了日が両方指定されていないと例外スロー */
+                throw new ArgumentException("フィルターは、開始日と終了日の両方を指定してください。");
+            }
+
+            if (filter.From is not null)
+            {
+                querySb.AppendLine("AND j.closed_at >= CAST(@From AS DATE)");
+                querySb.AppendLine("AND j.closed_at < DATEADD(DAY, 1, CAST(@To AS DATE))");
+            }
+
+            // 降順ソート（最新が上）
+            querySb.AppendLine("ORDER BY j.closed_at DESC");
+
             /* DB接続開始 */
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(token);
 
-            return [];
+            var jobList = await connection.QueryAsync<Job>(
+                new CommandDefinition(
+                    querySb.ToString(),
+                    new
+                    {
+                        Status = status,
+                        TaxiId = filter.TaxiId,
+                        DriverName = filter.DriverName,
+                        From = filter.From,
+                        To = filter.To
+                    },
+                    cancellationToken: token));
 
+            logger.LogInformation("[成功]運行履歴取得");
+            return [.. jobList];
+        }
+        catch (ArgumentException ex)
+        {
+            /* フィルター状態がおかしい */
+            logger.LogWarning(ex, "[失敗]フィルター異常：運行履歴取得に失敗");
+            throw;
         }
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]実行中JOB個数取得");
+            logger.LogError(ex, "[エラー]運行履歴取得");
             throw;
         }
     }
@@ -265,29 +492,61 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(token);
 
-            logger.LogInformation("[成功]本日完了済みJOBの個数取得");
-                return await connection.ExecuteScalarAsync<int>(
-                    new CommandDefinition(
-                        """
+            var count = await connection.ExecuteScalarAsync<int>(
+                new CommandDefinition(
+                    """
                     SELECT Count(*)
                     FROM jobs j
-                    WHERE j.closed_at  >= CAST(GETDATE() AS DATE)
-                        AND  j.closed_at  < DATEADD(day, 1, CAST(GETDATE() AS DATE));
+                    WHERE j.closed_at >= CAST(GETDATE() AS DATE)
+                    AND j.closed_at < DATEADD(day, 1, CAST(GETDATE() AS DATE));
                     """,
-                        cancellationToken: token));
+                    cancellationToken: token));
+
+            logger.LogInformation("[成功]本日完了済みJOBの個数取得");
+            return count;
         }
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]本日完了済みJOBの個数取得");
+            logger.LogError(ex, "[エラー]本日完了済みJOBの個数取得");
             throw;
         }
     }
 
     // タクシー一覧取得
-    public async Task<List<(Taxi Taxi, string JobId)>> GetTaxisAsync(CancellationToken token)
+    public async Task<List<Taxi>> GetTaxisAsync(CancellationToken token)
     {
-        return [];
+        try
+        {
+            /* DB接続開始 */
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(token);
+
+            var taxiList = await connection.QueryAsync<Taxi>(
+                new CommandDefinition(
+                    """
+                    SELECT                    
+                        t.id AS [Id],
+                        t.taxi_status_id AS [Status],
+                        t.driver_name AS [DriverName],
+                        j.id AS [JobId]
+                    FROM taxis t
+                    LEFT JOIN jobs j
+                        ON j.taxi_id = t.id
+                        AND j.closed_at IS NULL
+                    ORDER BY t.id ASC;
+                    """,
+                    cancellationToken: token));
+
+            logger.LogInformation("[成功]タクシー一覧取得");
+            return [.. taxiList];
+        }
+        catch (Exception ex)
+        {
+            /* DBエラー等 */
+            logger.LogError(ex, "[エラー]タクシー一覧取得");
+            throw;
+        }
     }
 
     // タクシーの台数取得
@@ -299,19 +558,21 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(token);
 
-            logger.LogInformation("[成功]タクシーの台数取得");
-            return await connection.ExecuteScalarAsync<int>(
+            var count = await connection.ExecuteScalarAsync<int>(
                 new CommandDefinition(
                     """
-                SELECT Count(*)
-                FROM taxis;
-                """,
+                    SELECT Count(*)
+                    FROM taxis;
+                    """,
                     cancellationToken: token));
+
+            logger.LogInformation("[成功]タクシーの台数取得");
+            return count;
         }
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]タクシーの台数取得");
+            logger.LogError(ex, "[エラー]タクシーの台数取得");
             throw;
         }
     }
@@ -319,7 +580,35 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
     // 割当可能なタクシー一覧取得(stringリスト)
     public async Task<List<string>> GetAvailableTaxisAsync(CancellationToken token)
     {
-        return [];
+        try
+        {
+            /* DB接続開始 */
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(token);
+
+            var taxiList = await connection.QueryAsync<string>(
+                new CommandDefinition(
+                    """
+                    SELECT t.id
+                    FROM taxis t
+                    WHERE t.taxi_status_id = @Idle
+                    ORDER BY t.id ASC;
+                    """,
+                    new
+                    {
+                        Idle = TaxiStatus.Idle
+                    },
+                    cancellationToken: token));
+
+            logger.LogInformation("[成功]割当可能タクシー一覧取得");
+            return [.. taxiList];
+        }
+        catch (Exception ex)
+        {
+            /* DBエラー等 */
+            logger.LogError(ex, "[エラー]割当可能タクシー一覧取得");
+            throw;
+        }
     }
 
     // 割当可能なタクシーの台数取得
@@ -335,51 +624,291 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
             return await connection.ExecuteScalarAsync<int>(
                 new CommandDefinition(
                     """
-                SELECT Count(*)
-                FROM taxis
-                WHERE taxi_status_id = @idle;
-                """,
+                    SELECT Count(*)
+                    FROM taxis
+                    WHERE taxi_status_id = @Idle;
+                    """,
                     new
                     {
-                        idle = TaxiStatus.Idle
+                        Idle = TaxiStatus.Idle
                     },
                     cancellationToken: token));
         }
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]タクシーの台数取得");
+            logger.LogError(ex, "[エラー]タクシーの台数取得");
             throw;
         }
     }
 
-    // タクシーの情報取得
-    public async Task<(Taxi CurrentTaxi, Job CurrentJob)> GetCurrentTaxiInfoAsync(string id, CancellationToken token)
+    // ===== スタブ用 =====
+
+    // タクシーの情報取得（割当JOB）
+    public async Task<TaxiInfo> GetCurrentTaxiInfoAsync(string id, CancellationToken token)
     {
-        return ;
+        try
+        {
+            /* DB接続開始 */
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(token);
+
+            var currentJob = await GetTaxiInfoAsync(connection, null, id, token);
+
+            logger.LogInformation("[成功]タクシーの割当JOB取得");
+            return currentJob ?? throw new ArgumentException("タクシーIDが不正");
+        }
+        catch (ArgumentException ex)
+        {
+            /* DBエラー、割当2件以上あった等 */
+            logger.LogWarning(ex, "[失敗]タクシーIDが存在しない");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            /* DBエラー、割当2件以上あった等 */
+            logger.LogError(ex, "[エラー]タクシーの割当JOB取得");
+            throw;
+        }
     }
 
     // タクシー状態の更新
-    public async Task SetCurrentTaxiStatusAsync(string id, string status, CancellationToken token)
+    public async Task<bool> SetCurrentTaxiStatusAsync(string id, TaxiStatus status, CancellationToken token)
     {
+        try
+        {
+            /* IDバリデーション */
+            if (await AnyTaxiAsync(id, token))
+            {
+                logger.LogWarning("[失敗]存在しないタクシーID");
+                return false;
+            }
 
+            /* DB接続開始 */
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(token);
+
+            // トランザクション開始
+            await using var tran = await connection.BeginTransactionAsync(token);
+
+            /* タクシー状態とJOB状態を更新 */
+            try
+            {
+                /* タクシー状態遷移確認 */
+                var currentTaxiStatus = await connection.ExecuteScalarAsync<TaxiStatus>(
+                    new CommandDefinition(
+                        """
+                    SELECT t.taxi_status_id
+                    FROM taxis t
+                    WHERE t.id = @Id;
+                    """,
+                        new
+                        {
+                            Id = id
+                        },
+                        transaction: tran,
+                        cancellationToken: token));
+
+                // 遷移不可能ならば
+                if (!CanTaxiTransition(currentTaxiStatus, status))
+                {
+                    /* ロールバックしてfalse */
+                    await tran.RollbackAsync(token);
+                    logger.LogWarning("[失敗]タクシー状態遷移失敗：{current}->{new}", currentTaxiStatus, status);
+                    return false;
+                }
+
+                // タクシー状態をtran内で変更
+                var taxiAffected = await connection.ExecuteAsync(
+                    """                    
+                    UPDATE taxis
+                    SET taxi_status_id  = @NextTaxiStatus
+                    WHERE id = @id
+                    AND taxi_status_id = @CurrentTaxiStatus;
+                    """,
+                    new
+                    {
+                        Id = id,
+                        CurrentTaxiStatus = currentTaxiStatus,
+                        NextTaxiStatus = status
+                    }
+                    , tran);
+
+                // 遷移に失敗したら
+                if (taxiAffected == 0)
+                {
+                    /* ロールバックしてfalse */
+                    await tran.RollbackAsync(token);
+                    logger.LogWarning("[失敗]DB状態不整合");
+                    return false;
+                }
+
+
+                /* JOB状態遷移確認 */
+                // このタクシーに割り当てられているJOBからJOB状態を取得
+                var assignedJob = await connection.QuerySingleOrDefaultAsync<Job>(new CommandDefinition(
+                    """
+                    SELECT                    
+                        j.id AS [Id],
+                        j.job_status_id AS [Status],
+                        j.from_loc AS [FromLoc],
+                        j.to_loc AS [ToLoc],
+                        j.taxi_id AS [TaxiId],
+                        t.driver_name AS [DriverName],
+                        j.closed_at AS [ClosedAt]
+                    FROM jobs j
+                    LEFT JOIN taxis t
+                        ON t.id = j.taxi_id
+                    WHERE j.id = @Id
+                    AND j.closed_at IS NULL
+                    """,
+                    new
+                    {
+                        Id = id
+                    },
+                    cancellationToken: token));
+
+                // JOBが存在したら更新
+                if (assignedJob is not null)
+                {
+                    // このJOB状態と、次の遷移状態を取得 => 割当なしならnull
+                    var currentJobStatus = assignedJob.Status;
+                    var nextJobStatus = GetNextJobStatus(currentJobStatus);
+
+                    // JOB状態を更新
+                    var jobAffected = await connection.ExecuteAsync(
+                        """                    
+                        UPDATE jobs
+                        SET job_status_id  = @NextJobStatus
+                        WHERE id = @id
+                        AND job_status_id = @CurrentJobStatus;
+                        """,
+                        new
+                        {
+                            Id = assignedJob.Id,
+                            CurrentJobStatus = currentJobStatus,
+                            NextJobStatus = nextJobStatus
+                        }
+                        , tran);
+
+
+                    // 影響したレコードが0件（=カラム制約違反など）
+                    if (jobAffected == 0)
+                    {
+                        /* ロールバックしてfalse */
+                        await tran.RollbackAsync(token);
+                        logger.LogWarning("[失敗]登録データ不正");
+                        return false;
+                    }
+                }
+
+                // コミットしてture
+                await tran.CommitAsync(token);
+                logger.LogInformation("[成功]タクシー状態の更新に成功");
+                return true;
+            }
+            catch
+            {
+                await tran.RollbackAsync(token); // ロールバックしてthrow
+                throw;
+            }
+
+        }
+        catch (Exception ex)
+        {
+            /* DBエラー、割当2件以上あった等 */
+            logger.LogError(ex, "[エラー]タクシーの割当JOB取得");
+            throw;
+        }
     }
 
+    // ===== 汎用 =====
 
     // JOB IDの存在確認
-    public async Task<bool> AnyJobAsync(string id, CancellationToken token)
+    public async Task<bool> AnyActiveJobAsync(string id, CancellationToken token)
     {
-        return false;
+        try
+        {
+            /* DB接続開始 */
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(token);
+
+            var jobExists = await connection.ExecuteScalarAsync<bool>(
+                new CommandDefinition(
+                    """
+                    SELECT
+                        CASE
+                            WHEN EXISTS(
+                                SELECT 1
+                                FROM jobs
+                                WHERE id = @Id
+                                AND closed_at IS NULL
+                            )
+                            THEN CAST(1 AS BIT)
+                            ELSE CAST(0 AS BIT)
+                        END;
+                    """,
+                    new
+                    {
+                        Id = id
+                    },
+                    cancellationToken: token));
+
+
+            logger.LogInformation("[成功]JOB存在確認");
+            return jobExists;
+        }
+        catch (Exception ex)
+        {
+            /* DBエラー等 */
+            logger.LogError(ex, "[エラー]JOB存在確認");
+            throw;
+        }
     }
 
     // タクシーIDの存在確認
     public async Task<bool> AnyTaxiAsync(string id, CancellationToken token)
     {
-        return false;
+        try
+        {
+            /* DB接続開始 */
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(token);
+
+            var taxiExists = await connection.ExecuteScalarAsync<bool>(
+                new CommandDefinition(
+                    """
+                    SELECT
+                        CASE
+                            WHEN EXISTS(
+                                SELECT 1
+                                FROM taxis
+                                WHERE id = @Id
+                            )
+                            THEN CAST(1 AS BIT)
+                            ELSE CAST(0 AS BIT)
+                        END;
+                    """,
+                    new
+                    {
+                        Id = id
+                    },
+                    cancellationToken: token));
+
+
+            logger.LogInformation("[成功]タクシー存在確認");
+            return taxiExists;
+        }
+        catch (Exception ex)
+        {
+            /* DBエラー等 */
+            logger.LogError(ex, "[エラー]タクシー存在確認");
+            throw;
+        }
     }
 
 
-    // ===== プライベートメソッド =====
+    // ===== プライベート =====
 
     // 新しいJOB IDを取得
     private async Task<string> GetNewJobIdAsync(SqlConnection connection, IDbTransaction tran, CancellationToken token)
@@ -414,8 +943,12 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
                 out var parsedDate);
             var isBranch = int.TryParse(segments[1], out var parsedBranch);
 
+            // 保存されているJOB IDの変換ができなかったとき
             if (!isDate || !isBranch)
-                throw new KeyNotFoundException($"正常なJOB IDが取れなかった:{latestJobId}");
+            {
+                logger.LogWarning("[失敗]JOB IDの生成に失敗");
+                throw new KeyNotFoundException($"JOB IDの生成に失敗:{latestJobId}");
+            }
 
             // 今日の日付と異なる場合
             if (parsedDate.Date != today)
@@ -429,9 +962,62 @@ public class TMSRepository(IConfiguration configuration, ILogger logger) : ITMSR
         catch (Exception ex)
         {
             /* DBエラー等 */
-            logger.LogError(ex, "[失敗]DBアクセスエラー");
+            logger.LogError(ex, "[エラー]DBアクセスエラー");
             throw;
         }
     }
 
+    // タクシー情報の取得
+    private static async Task<TaxiInfo?> GetTaxiInfoAsync(
+        SqlConnection connection,
+        IDbTransaction? tran,
+        string id,
+        CancellationToken token)
+    {
+        return await connection.QuerySingleOrDefaultAsync<TaxiInfo>(
+                new CommandDefinition(
+                    """
+                    SELECT                    
+                        t.id AS [TaxiId],
+                        t.taxi_status_id AS [Status],
+                        t.driver_name AS [DriverName],
+                        j.id AS [JobId],
+                        j.job_status_id AS [JobStatus],
+                        j.from_loc AS [FromLoc],
+                        j.to_loc AS [ToLoc]
+                    FROM taxis t
+                    LEFT JOIN jobs j
+                        ON j.taxi_id = t.id
+                       AND j.closed_at IS NULL
+                    WHERE t.id = @Id;
+                    """,
+                    new
+                    {
+                        Id = id
+                    },
+                    transaction: tran,
+                    cancellationToken: token));
+    }
+
+    // タクシー遷移バリデーション
+    private static bool CanTaxiTransition(TaxiStatus currentStatus, TaxiStatus newStatus) =>
+        currentStatus switch
+        {
+            TaxiStatus.Idle => newStatus is TaxiStatus.Reserved or TaxiStatus.OffDuty,
+            TaxiStatus.Reserved => newStatus is TaxiStatus.Occupied,
+            TaxiStatus.Occupied => newStatus is TaxiStatus.Idle,
+            TaxiStatus.OffDuty => newStatus is TaxiStatus.Idle,
+            _ => false
+        };
+
+    // JOBの正常系遷移状態
+    private static JobStatus GetNextJobStatus(JobStatus current) =>
+        current switch
+        {
+            JobStatus.Queued => JobStatus.Waiting,
+            JobStatus.Waiting => JobStatus.Active,
+            JobStatus.Active => JobStatus.Completed,
+            JobStatus.Aborting => JobStatus.Aborted,
+            _ => throw new InvalidOperationException($"JOB状態が不正です。JobStatus：{current}")
+        };
 }
