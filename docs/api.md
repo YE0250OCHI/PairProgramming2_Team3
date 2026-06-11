@@ -41,8 +41,7 @@ GET /api/jobs
     "status": "Active",
     "fromLoc": "新居浜駅",
     "toLoc": "イオンモール新居浜",
-    "taxiId": "TX002",
-    "driverName": "鈴木　次郎"
+    "taxiId": "TX002"
   },
   {
     "jobId": "J20260609-0052",
